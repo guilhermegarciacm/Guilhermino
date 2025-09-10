@@ -131,22 +131,15 @@ def buscar_indice(ind: IndiceHash, chave: str) -> dict:
     addr = hash_djb2(chave, ind.NB)
     head = ind.diretorio[addr]
 
-    # 1. Primeiro, calculamos todas as métricas para o bucket acessado.
-    chs_bucket = 0
     total_bucket_pages = 0
     cadeia_bucket_keys = []
     for p in _iter_chain(head):
-        chs_bucket += len(p.slots)
         total_bucket_pages += 1
         cadeia_bucket_keys.append(list(p.slots.keys()))
 
     ovf_pages = max(0, total_bucket_pages - 1)
 
-    # 2. A colisão local é o número de chaves que NÃO estão na primeira página.
-    keys_in_first_page = len(head.slots) if head else 0
-    colisoes_locais = max(0, chs_bucket - keys_in_first_page)
-
-    # 3. Agora, realizamos a busca pela chave na cadeia.
+    # 2. Realizamos a busca pela chave na cadeia.
     lidas = 0
     pg = head
     while pg:
@@ -156,8 +149,6 @@ def buscar_indice(ind: IndiceHash, chave: str) -> dict:
             return {
                 "encontrado": True, "localizacao": pg.slots[chave], "custo": lidas,
                 "tempo": time.perf_counter() - t0,
-                "colisoes_locais": colisoes_locais,
-                "taxa_colisoes_local_pct": (colisoes_locais / chs_bucket * 100.0) if chs_bucket > 0 else 0.0,
                 "overflow_local_count": ovf_pages,
                 "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages > 0 else 0.0,
                 "endereco_bucket": addr,
@@ -169,8 +160,6 @@ def buscar_indice(ind: IndiceHash, chave: str) -> dict:
     return {
         "encontrado": False, "localizacao": None, "custo": lidas,
         "tempo": time.perf_counter() - t0,
-        "colisoes_locais": colisoes_locais,
-        "taxa_colisoes_local_pct": (colisoes_locais / chs_bucket * 100.0) if chs_bucket > 0 else 0.0,
         "overflow_local_count": ovf_pages,
         "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages > 0 else 0.0,
         "endereco_bucket": addr,
@@ -356,12 +345,11 @@ class App(tk.Tk):
         rel = [
             "--- RELATÓRIO ---", "",
             "[Resultados e Custos]",
-            f"  - Índice: {msg_idx} (Custo: {r_idx['custo']})",
+            f"  - Índice: {msg_idx} (Custo: {r_idx['custo']} páginas)",
             f"  - Table Scan: {msg_scan} (Custo: {r_scan['custo']} páginas)",
             "",
             "[Bucket acessado]",
-            f"  - Colisões locais: {r_idx['colisoes_locais']}  | Taxa: {r_idx['taxa_colisoes_local_pct']:.2f}%",
-            f"  - Overflow: {r_idx['overflow_local_count']}  | Taxa: {r_idx['taxa_overflow_local_pct']:.2f}% (FR={self.indice.FR})",
+            f"  - Páginas de Overflow: {r_idx['overflow_local_count']}  | Taxa: {r_idx['taxa_overflow_local_pct']:.2f}% (FR={self.indice.FR})",
             "",
             "[Tempo]",
             f"  - Índice: {r_idx['tempo']:.6f}s  | Table Scan: {r_scan['tempo']:.6f}s",
