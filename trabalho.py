@@ -74,7 +74,6 @@ def construir_indice(paginas: list[list[str]], nb: int, fr: int) -> IndiceHash:
 # Métricas
 # -----------------------------
 def metricas_globais(indice: IndiceHash, NR: int) -> dict:
-    # NU = nº de chaves efetivamente indexadas (únicas)
     NU = 0
     total_col = 0
     buck_ovf = 0
@@ -85,28 +84,22 @@ def metricas_globais(indice: IndiceHash, NR: int) -> dict:
         paginas_bucket = 0
         is_first_page = True
 
-        # Itera sobre a cadeia de páginas do bucket
         for pg in _iter_chain(head):
             num_chaves_pagina = len(pg.slots)
             chs_bucket += num_chaves_pagina
             paginas_bucket += 1
-
             if not is_first_page:
                 total_col += num_chaves_pagina
-            
             is_first_page = False
 
         if chs_bucket > 0:
             nonempty_buckets += 1
-            # A lógica antiga de colisão foi removida daqui.
-            # total_col += (chs_bucket - 1)  <-- LÓGICA ANTIGA E REMOVIDA
 
         if paginas_bucket > 1:
             buck_ovf += 1
             
         NU += chs_bucket
 
-    # Denominador correto: NU, não NR
     colisoes_pct = (total_col / NU * 100.0) if NU > 0 else 0.0
     overflow_pct = (buck_ovf / indice.NB * 100.0) if indice.NB > 0 else 0.0
 
@@ -120,9 +113,6 @@ def metricas_globais(indice: IndiceHash, NR: int) -> dict:
         "NR": NR,
     }
 
-
-
-
 # -----------------------------
 # Buscas
 # -----------------------------
@@ -130,40 +120,21 @@ def buscar_indice(ind: IndiceHash, chave: str) -> dict:
     t0 = time.perf_counter()
     addr = hash_djb2(chave, ind.NB)
     head = ind.diretorio[addr]
-
-    total_bucket_pages = 0
-    cadeia_bucket_keys = []
-    for p in _iter_chain(head):
-        total_bucket_pages += 1
-        cadeia_bucket_keys.append(list(p.slots.keys()))
-
-    ovf_pages = max(0, total_bucket_pages - 1)
-
-    # 2. Realizamos a busca pela chave na cadeia.
+    
     lidas = 0
     pg = head
     while pg:
         lidas += 1
         if chave in pg.slots:
-            # Chave encontrada: retorna sucesso com as métricas já calculadas
             return {
                 "encontrado": True, "localizacao": pg.slots[chave], "custo": lidas,
                 "tempo": time.perf_counter() - t0,
-                "overflow_local_count": ovf_pages,
-                "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages > 0 else 0.0,
-                "endereco_bucket": addr,
-                "cadeia_bucket": cadeia_bucket_keys,
             }
         pg = pg.next
         
-    # Chave não encontrada: retorna falha com as mesmas métricas
     return {
         "encontrado": False, "localizacao": None, "custo": lidas,
         "tempo": time.perf_counter() - t0,
-        "overflow_local_count": ovf_pages,
-        "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages > 0 else 0.0,
-        "endereco_bucket": addr,
-        "cadeia_bucket": cadeia_bucket_keys,
     }
 
 def table_scan(paginas: list[list[str]], chave: str, listar=False) -> dict:
@@ -235,13 +206,6 @@ class App(tk.Tk):
         frameRel = ttk.LabelFrame(right, text="Relatório"); frameRel.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         self.text_rel = tk.Text(frameRel, height=14, wrap="word"); self.text_rel.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        frameBucket = ttk.LabelFrame(right, text="Cadeia do Bucket"); frameBucket.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-        self.tree_bucket = ttk.Treeview(frameBucket, columns=("conteudo",), show="tree headings", height=8)
-        self.tree_bucket.heading("#0", text="Página")
-        self.tree_bucket.heading("conteudo", text="Chaves")
-        self.tree_bucket.column("#0", width=140); self.tree_bucket.column("conteudo", width=480)
-        self.tree_bucket.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-
         frameScan = ttk.LabelFrame(right, text="Registros lidos no Table Scan"); frameScan.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         self.list_scan = tk.Listbox(frameScan, height=10); self.list_scan.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
@@ -254,7 +218,6 @@ class App(tk.Tk):
         self._mostrar_paginas()
         self.indice = None; self.nb = 0; self.lbl_nb.config(text="—")
         self.text_globais.delete("1.0", tk.END); self.text_rel.delete("1.0", tk.END)
-        for it in self.tree_bucket.get_children(): self.tree_bucket.delete(it)
         self.list_scan.delete(0, tk.END)
         self._atualiza_status(f"Dados: NR={self.NR}, páginas={len(self.paginas)}, tam={max(1,int(self.var_tam.get()))}")
         self._calcular_nb()
@@ -303,7 +266,6 @@ class App(tk.Tk):
         r_idx = buscar_indice(self.indice, chave)
         r_scan = table_scan(self.paginas, chave, listar=True)
         self._mostrar_relatorio(r_idx, r_scan)
-        self._mostrar_bucket(r_idx)
         self._mostrar_scan_list(r_scan)
 
     def _table_scan(self):
@@ -322,13 +284,6 @@ class App(tk.Tk):
     def _limpar_relatorios(self):
         self.text_rel.delete("1.0", tk.END)
         self.list_scan.delete(0, tk.END)
-        for it in self.tree_bucket.get_children(): self.tree_bucket.delete(it)
-
-    def _mostrar_bucket(self, r_idx: dict):
-        self.tree_bucket.insert("", "end", text=f"Bucket #{r_idx['endereco_bucket']}", values=("cadeia",))
-        for i, keys in enumerate(r_idx["cadeia_bucket"], 1):
-            conteudo = ", ".join(keys[:20]) + (" ..." if len(keys) > 20 else "")
-            self.tree_bucket.insert("", "end", text=f"Cadeia {i}", values=(conteudo,))
 
     def _mostrar_scan_list(self, r_scan: dict, limite=5000):
         lst = r_scan.get("registros_lidos", [])
@@ -347,9 +302,6 @@ class App(tk.Tk):
             "[Resultados e Custos]",
             f"  - Índice: {msg_idx} (Custo: {r_idx['custo']} páginas)",
             f"  - Table Scan: {msg_scan} (Custo: {r_scan['custo']} páginas)",
-            "",
-            "[Bucket acessado]",
-            f"  - Páginas de Overflow: {r_idx['overflow_local_count']}  | Taxa: {r_idx['taxa_overflow_local_pct']:.2f}% (FR={self.indice.FR})",
             "",
             "[Tempo]",
             f"  - Índice: {r_idx['tempo']:.6f}s  | Table Scan: {r_scan['tempo']:.6f}s",
