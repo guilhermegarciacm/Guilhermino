@@ -130,34 +130,51 @@ def buscar_indice(ind: IndiceHash, chave: str) -> dict:
     t0 = time.perf_counter()
     addr = hash_djb2(chave, ind.NB)
     head = ind.diretorio[addr]
-    lidas, chs_bucket = 0, 0
-    total_bucket_pages = sum(1 for _ in _iter_chain(head))
+
+    # 1. Primeiro, calculamos todas as métricas para o bucket acessado.
+    chs_bucket = 0
+    total_bucket_pages = 0
+    cadeia_bucket_keys = []
+    for p in _iter_chain(head):
+        chs_bucket += len(p.slots)
+        total_bucket_pages += 1
+        cadeia_bucket_keys.append(list(p.slots.keys()))
+
     ovf_pages = max(0, total_bucket_pages - 1)
+
+    # 2. A colisão local é o número de chaves que NÃO estão na primeira página.
+    keys_in_first_page = len(head.slots) if head else 0
+    colisoes_locais = max(0, chs_bucket - keys_in_first_page)
+
+    # 3. Agora, realizamos a busca pela chave na cadeia.
+    lidas = 0
     pg = head
     while pg:
         lidas += 1
-        chs_bucket += len(pg.slots)
         if chave in pg.slots:
+            # Chave encontrada: retorna sucesso com as métricas já calculadas
             return {
                 "encontrado": True, "localizacao": pg.slots[chave], "custo": lidas,
                 "tempo": time.perf_counter() - t0,
-                "colisoes_locais": max(0, chs_bucket - 1),
-                "taxa_colisoes_local_pct": (max(0, chs_bucket - 1) / chs_bucket * 100.0) if chs_bucket else 0.0,
+                "colisoes_locais": colisoes_locais,
+                "taxa_colisoes_local_pct": (colisoes_locais / chs_bucket * 100.0) if chs_bucket > 0 else 0.0,
                 "overflow_local_count": ovf_pages,
-                "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages else 0.0,
+                "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages > 0 else 0.0,
                 "endereco_bucket": addr,
-                "cadeia_bucket": [list(p.slots.keys()) for p in _iter_chain(head)],
+                "cadeia_bucket": cadeia_bucket_keys,
             }
         pg = pg.next
+        
+    # Chave não encontrada: retorna falha com as mesmas métricas
     return {
         "encontrado": False, "localizacao": None, "custo": lidas,
         "tempo": time.perf_counter() - t0,
-        "colisoes_locais": max(0, chs_bucket - 1),
-        "taxa_colisoes_local_pct": (max(0, chs_bucket - 1) / chs_bucket * 100.0) if chs_bucket else 0.0,
+        "colisoes_locais": colisoes_locais,
+        "taxa_colisoes_local_pct": (colisoes_locais / chs_bucket * 100.0) if chs_bucket > 0 else 0.0,
         "overflow_local_count": ovf_pages,
-        "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages else 0.0,
+        "taxa_overflow_local_pct": (ovf_pages / total_bucket_pages * 100.0) if total_bucket_pages > 0 else 0.0,
         "endereco_bucket": addr,
-        "cadeia_bucket": [list(p.slots.keys()) for p in _iter_chain(head)],
+        "cadeia_bucket": cadeia_bucket_keys,
     }
 
 def table_scan(paginas: list[list[str]], chave: str, listar=False) -> dict:
